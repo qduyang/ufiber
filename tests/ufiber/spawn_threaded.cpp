@@ -78,11 +78,11 @@ auto
 async_run(boost::asio::io_context& ctx,
           std::promise<void>& promise,
           CompletionToken&& tok)
-  -> BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, void())
+  -> BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken,
+                                   void(int, std::unique_ptr<int>))
 {
-    boost::asio::async_completion<CompletionToken, void()> init{tok};
-
-    using handler_t = typename decltype(init)::completion_handler_type;
+    using handler_t =
+      BOOST_ASIO_HANDLER_TYPE(CompletionToken, void(int, std::unique_ptr<int>));
 
     struct op
     {
@@ -107,9 +107,12 @@ async_run(boost::asio::io_context& ctx,
         boost::asio::io_context& io_;
     };
 
-    boost::asio::post(op{std::move(init.completion_handler), promise, ctx});
-
-    return init.result.get();
+    return boost::asio::async_initiate<CompletionToken,
+                                       void(int, std::unique_ptr<int>)>(
+      [&](handler_t&& handler) {
+          boost::asio::post(op{std::move(handler), promise, ctx});
+      },
+      std::forward<CompletionToken>(tok));
 }
 
 } // namespace test
@@ -146,33 +149,6 @@ main()
 
         BOOST_TEST(io.run() == 1);
         t.join();
-    }
-
-    {
-        // Check if failure to allocate in an async init function is handled
-        // properly (no resumption, just let the exception bubble to the fiber)
-        std::function<void()> pre_hook;
-        std::function<void()> post_hook;
-        boost::asio::io_context io{1};
-        executor_t ex{io.get_executor(), pre_hook, post_hook};
-        int counter = 0;
-        ufiber::spawn(ex, [&](yield_token_t yield) {
-            // Emulate an allocation failure when initiating an operation.
-            pre_hook = []() { throw std::bad_alloc{}; };
-            try
-            {
-                boost::asio::post(yield);
-                BOOST_ERROR("Expected exception");
-            }
-            catch (std::bad_alloc const&)
-            {
-                ++counter;
-                // Success
-            }
-        });
-
-        BOOST_TEST(io.run() == 1);
-        BOOST_TEST(counter == 1);
     }
 
     return boost::report_errors();

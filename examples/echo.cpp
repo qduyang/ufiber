@@ -10,6 +10,12 @@ namespace echo
 namespace net = boost::asio;
 namespace beast = boost::beast;
 
+using tcp_socket =
+  net::basic_stream_socket<net::ip::tcp, net::io_context::executor_type>;
+
+using tcp_acceptor =
+  net::basic_socket_acceptor<net::ip::tcp, net::io_context::executor_type>;
+
 namespace
 {
 // We use a function object here so that we can easily bind together the socket
@@ -52,7 +58,7 @@ struct echo_session
         }
     }
 
-    net::ip::tcp::socket socket_;
+    tcp_socket socket_;
 };
 
 // μfiber uses a yield_token that has an Executor parameter, so no type-erasure
@@ -65,10 +71,10 @@ void
 accept(ufiber::yield_token<net::io_context::executor_type> yield)
 {
     auto ex = yield.get_executor();
-    net::ip::tcp::acceptor acceptor{
+    tcp_acceptor acceptor{
       ex.context(), net::ip::tcp::endpoint{net::ip::address_v6::any(), 8000}};
 
-    net::ip::tcp::socket s{ex.context()};
+    tcp_socket s{ex.context()};
     for (;;)
     {
         // When an async operation returns 1 result, it's not wrapped into a
